@@ -1,0 +1,54 @@
+lastSend:long
+lastSend = 0
+
+url:byte[200]
+url = "http://192.168.1.218:8086/api/v2/write?org=TEKO&bucket=sensor_data&precision=s"
+
+token:byte[100]
+token = "teko-database-design-token"
+
+body:byte[300]
+
+def onDraw():
+
+    temperature = getTemperature()
+    humidity = getHumidity()
+    pressure = getPressure()
+    lux = getAmbientLux()
+
+    clear()
+
+    textFont(FONT_ROBOTO_BOLD_16)
+    drawText(10, 10, "Oxocard Sensor")
+
+    textFont(FONT_ROBOTO_16)
+
+    drawText(10, 45, "Temp : " + temperature + " C")
+    drawText(10, 70, "Hum  : " + humidity + " %")
+    drawText(10, 95, "Pres : " + pressure + " hPa")
+    drawText(10,120, "Lux  : " + lux + " lx")
+
+    if millis() - lastSend >= 5000:
+
+        lastSend = millis()
+
+        body = "environment,device=oxocard01 "
+        body = body + "temperature=" + temperature
+        body = body + ",humidity=" + humidity
+        body = body + ",pressure=" + pressure
+        body = body + ",brightness=" + lux
+
+        addRequestHeader("Authorization", "Token " + token)
+        addRequestHeader("Content-Type", "text/plain")
+        addRequestHeader("Content-Length", strLen(body))
+
+        if postRequest(url, body):
+            drawText(10, 165, "Status: Connected")
+            print("Upload successful")
+        else:
+            drawText(10, 165, "Status: Upload failed")
+            print("Upload failed")
+
+    update()
+
+    delay(50)

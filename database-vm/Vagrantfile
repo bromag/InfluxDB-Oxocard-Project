@@ -1,0 +1,55 @@
+Vagrant.require_version ">= 2.4.0"
+
+project_root = File.expand_path("..", __dir__)
+
+Vagrant.configure("2") do |config|
+
+  config.vm.box = "bento/ubuntu-24.04"
+  config.vm.hostname = "database-server"
+
+  config.vm.network "private_network", ip: "192.168.56.10"
+
+  config.vm.network "forwarded_port", guest: 3000, host: 3000 # Grafana
+  config.vm.network "forwarded_port", guest: 8086, host: 8086 # InfluxDB
+
+  config.vm.synced_folder ".", "/vagrant", disabled: true
+
+  config.vm.provider "virtualbox" do |vb, override|
+    vb.memory = 4096
+    vb.cpus = 2
+
+    # VirtualBox provides a live, bidirectional shared folder.
+    override.vm.synced_folder project_root, "/project",
+      type: "virtualbox",
+      owner: "vagrant",
+      group: "vagrant"
+  end
+
+  config.vm.provider "parallels" do |prl, override|
+    prl.memory = 4096
+    prl.cpus = 2
+    # The current ARM Bento box cannot restore custom prl_fs shares after a
+    # reboot. RSync is one-way but reliable and refreshes on every vagrant up.
+    override.vm.synced_folder project_root, "/project",
+      type: "rsync",
+      owner: "vagrant",
+      group: "vagrant",
+      rsync__exclude: [
+        ".vagrant/",
+        "scripts/",
+        "database-vm/",
+        ".git/",
+        ".idea/",
+        ".vscode/",
+        "node_modules/"
+      ]
+  end
+
+  config.vm.provision "shell", path: "scripts/01-system.sh"
+  config.vm.provision "shell", path: "scripts/02-docker.sh"
+  config.vm.provision "shell", path: "scripts/03-tools.sh"
+
+  if ENV.fetch("DATABASE_AUTOSTART", "1") == "1"
+    config.vm.provision "shell", path: "scripts/04-start-stack.sh"
+  end
+end
