@@ -9,6 +9,8 @@ token = "teko-database-design-token"
 
 body:byte[300]
 
+setPrecision(1)
+
 def onDraw():
 
     temperature = getTemperature()
@@ -22,11 +24,10 @@ def onDraw():
     drawText(10, 10, "Oxocard Sensor")
 
     textFont(FONT_ROBOTO_16)
-
     drawText(10, 45, "Temp : " + temperature + " C")
     drawText(10, 70, "Hum  : " + humidity + " %")
     drawText(10, 95, "Pres : " + pressure + " hPa")
-    drawText(10,120, "Lux  : " + lux + " lx")
+    drawText(10, 120, "Lux  : " + lux + " lx")
 
     if millis() - lastSend >= 5000:
 
@@ -38,9 +39,12 @@ def onDraw():
         body = body + ",pressure=" + pressure
         body = body + ",brightness=" + lux
 
+        clearRequestHeaders()
         addRequestHeader("Authorization", "Token " + token)
         addRequestHeader("Content-Type", "text/plain")
         addRequestHeader("Content-Length", strLen(body))
+
+        print(body)
 
         if postRequest(url, body):
             drawText(10, 165, "Status: Connected")
@@ -48,7 +52,7 @@ def onDraw():
         else:
             drawText(10, 165, "Status: Upload failed")
             print("Upload failed")
+            print(readRequest(0))
 
     update()
-
     delay(50)

@@ -1,5 +1,5 @@
 url:byte[200]
-url = "http://192.168.1.218:8086/api/v2/write?org=TEKO&bucket=sensor_data&precision=s"
+url = "http://192.168.1.197:8086/api/v2/write?org=TEKO&bucket=sensor_data&precision=s"
 
 token:byte[100]
 token = "teko-database-design-token"
@@ -10,6 +10,8 @@ temperature:float
 humidity:float
 pressure:float
 lux:float
+
+setPrecision(1)
 
 temperature = getTemperature()
 humidity = getHumidity()
@@ -22,6 +24,7 @@ body = body + ",humidity=" + humidity
 body = body + ",pressure=" + pressure
 body = body + ",brightness=" + lux
 
+clearRequestHeaders()
 addRequestHeader("Authorization", "Token " + token)
 addRequestHeader("Content-Type", "text/plain")
 addRequestHeader("Content-Length", strLen(body))
@@ -32,3 +35,4 @@ if postRequest(url, body):
     print("Upload successful")
 else:
     print("Upload failed")
+    print(readRequest(0))

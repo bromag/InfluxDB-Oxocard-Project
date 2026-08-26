@@ -1,0 +1,14 @@
+temperature:float
+
+setPrecision(1)
+
+temperature = getTemperature()
+
+print("Temperature: " + temperature + " C")
+
+clear()
+textFont(FONT_ROBOTO_BOLD_16)
+drawText(10, 20, "Temperature")
+textFont(FONT_ROBOTO_32)
+drawText(10, 70, temperature + " C")
+update()

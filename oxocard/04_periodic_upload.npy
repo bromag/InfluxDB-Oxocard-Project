@@ -9,6 +9,8 @@ token = "teko-database-design-token"
 
 body:byte[300]
 
+setPrecision(1)
+
 def onDraw():
 
     if millis() - lastSend >= 5000:
@@ -26,6 +28,7 @@ def onDraw():
         body = body + ",pressure=" + pressure
         body = body + ",brightness=" + lux
 
+        clearRequestHeaders()
         addRequestHeader("Authorization", "Token " + token)
         addRequestHeader("Content-Type", "text/plain")
         addRequestHeader("Content-Length", strLen(body))
@@ -36,5 +39,6 @@ def onDraw():
             print("Upload successful")
         else:
             print("Upload failed")
+            print(readRequest(0))
 
     delay(50)
