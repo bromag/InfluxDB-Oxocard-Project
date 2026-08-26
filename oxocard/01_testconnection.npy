@@ -1,4 +1,4 @@
-url = "http://192.168.1.218:8086/health"
+url = "http://192.168.1.197:8086/health"
 
 if getRequest(url):
     print("Connected!")
