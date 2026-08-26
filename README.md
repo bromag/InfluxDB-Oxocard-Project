@@ -30,7 +30,7 @@
 
 ## 1. Einleitung
 
-In IoT-Anwendungen entstehen fortlaufend Messwerte, die immer einem Zeitpunkt zugeordnet sind. Dazu gehören beispielsweise Temperatur, Luftfeuchtigkeit, Luftdruck und Helligkeit. Solche Daten unterscheiden sich von klassischen Geschäftsdaten: Sie werden regelmässig geschrieben, wachsen rasch an und werden hauptsächlich über Zeiträume, Trends und Aggregationen ausgewertet.
+In IoT-Anwendungen entstehen fortlaufend Messwerte, die immer einem Zeitpunkt zugeordnet sind. Dazu gehören beispielsweise Temperatur, Luftfeuchtigkeit, Luftdruck, Helligkeit und die Innenraumluftqualität (IAQ). Solche Daten unterscheiden sich von klassischen Geschäftsdaten: Sie werden regelmässig geschrieben, wachsen rasch an und werden hauptsächlich über Zeiträume, Trends und Aggregationen ausgewertet.
 
 Dieses Projekt zeigt den vollständigen Weg solcher Sensordaten. Eine **Oxocard Science+** erfasst Umgebungswerte und überträgt sie alle fünf Sekunden per HTTP an **InfluxDB**. InfluxDB speichert die Messwerte als Zeitreihen. **Grafana** greift auf diese Daten zu und stellt aktuelle Werte sowie zeitliche Verläufe in einem Dashboard dar.
 
@@ -57,7 +57,7 @@ Dabei müssen nicht nur einzelne Komponenten funktionieren. Entscheidend ist ihr
 Das Projekt verfolgt folgende Ziele:
 
 - Aufbau einer funktionierenden End-to-End-Pipeline von der Oxocard bis zum Dashboard
-- Erfassung von Temperatur, Luftfeuchtigkeit, Luftdruck und Helligkeit
+- Erfassung von Temperatur, Luftfeuchtigkeit, Luftdruck, Helligkeit und Innenraumluftqualität (IAQ)
 - Übertragung der Messwerte in einem Intervall von fünf Sekunden
 - Speicherung der Daten in einer für Zeitreihen optimierten Datenbank
 - sinnvolle Modellierung von Bucket, Measurement, Tags und Fields
@@ -77,7 +77,6 @@ Im aktuellen Projektumfang nicht vollständig umgesetzt sind:
 - automatische Alarmierung bei Grenzwertüberschreitungen
 - mehrere geografisch verteilte Sensorgeräte
 - eine abschliessende Last- und Langzeitmessung
-- automatische Provisionierung des Dashboard-JSON im Repository
 
 Diese Punkte sind mögliche Weiterentwicklungen, gehören aber nicht zum Kernnachweis dieses Prototyps.
 
@@ -97,6 +96,7 @@ Die Forschungsfrage wird im Projekt praktisch untersucht. Im Vordergrund stehen 
 │ Luftfeuchtigkeit         │
 │ Luftdruck                │
 │ Helligkeit               │
+│ Innenraumluftqualität    │
 └────────────┬─────────────┘
              │ HTTP POST / InfluxDB Line Protocol
              │ Intervall: 5 Sekunden
@@ -220,7 +220,7 @@ Vagrant erstellt eine Ubuntu-24.04-VM und führt die Provisionierungsskripte aus
 Der vollständige Datenfluss läuft in sieben Schritten ab:
 
 1. Die Oxocard liest Temperatur, Luftfeuchtigkeit, Luftdruck und Umgebungshelligkeit aus.
-2. Aus den vier Werten wird eine Zeile im InfluxDB Line Protocol erstellt.
+2. Aus den fünf Werten wird eine Zeile im InfluxDB Line Protocol erstellt. IAQ wird nur angefügt, wenn der Messwert im gültigen Bereich von 1 bis 5 liegt.
 3. Die Oxocard ergänzt den HTTP-Header `Authorization: Token ...` und setzt den Inhaltstyp auf `text/plain`.
 4. Das Gerät sendet die Zeile per HTTP POST an `/api/v2/write`.
 5. InfluxDB authentifiziert die Anfrage und speichert den Datenpunkt im Bucket `sensor_data`.
@@ -230,7 +230,7 @@ Der vollständige Datenfluss läuft in sieben Schritten ab:
 Beispiel einer übertragenen Zeile:
 
 ```text
-environment,device=oxocard01 temperature=23.4,humidity=48.0,pressure=1012.0,brightness=310.0
+environment,device=oxocard01 temperature=23.4,humidity=48.0,pressure=1012.0,brightness=310.0,iaq=2.0
 ```
 
 Die Oxocard übermittelt in der aktuellen Version keinen eigenen Zeitstempel. InfluxDB vergibt deshalb beim Eingang serverseitig den Zeitstempel. Der Query-Parameter `precision=s` definiert Sekunden als Genauigkeit für den Fall, dass später ein Zeitstempel mitgesendet wird.
@@ -240,7 +240,7 @@ Bei einem Intervall von fünf Sekunden entstehen pro Gerät:
 - 12 Schreibvorgänge pro Minute
 - 720 Schreibvorgänge pro Stunde
 - 17'280 Datenpunkte pro Tag
-- 69'120 einzelne Field-Werte pro Tag, da jeder Datenpunkt vier Messwerte enthält
+- bis zu 86'400 einzelne Field-Werte pro Tag, wenn jeder Datenpunkt alle fünf Messwerte enthält
 
 Diese Menge ist für den Prototyp klein, zeigt aber bereits das typische lineare Wachstum einer Zeitreihenanwendung.
 
@@ -283,6 +283,7 @@ Mögliche spätere Tags sind `room` oder `location`. Tags eignen sich für Werte
 | `humidity` | % | relative Luftfeuchtigkeit |
 | `pressure` | hPa | Luftdruck |
 | `brightness` | lx | Umgebungshelligkeit |
+| `iaq` | Index 1–5 | Bewertung der Innenraumluftqualität |
 
 Fields enthalten die eigentlichen Messwerte. Sie sind nicht für jeden einzelnen Wert indexiert und eignen sich deshalb für kontinuierlich wechselnde numerische Daten.
 
@@ -294,7 +295,7 @@ Jeder gespeicherte Datenpunkt erhält einen Zeitstempel. Da die Oxocard aktuell 
 
 Das gewählte Schema ist kompakt und erweiterbar:
 
-- Vier gleichzeitig erfasste Umgebungswerte werden in einem gemeinsamen Datenpunkt geschrieben.
+- Fünf gleichzeitig erfasste Umgebungswerte werden in einem gemeinsamen Datenpunkt geschrieben. Ein ungültiger IAQ-Wert wird nicht übertragen.
 - Der Gerätebezug ist als indexierter Tag schnell filterbar.
 - Neue Geräte können denselben Aufbau mit einem anderen `device`-Wert verwenden.
 - Weitere Umgebungswerte können als Fields ergänzt werden.
@@ -304,18 +305,33 @@ Wichtig ist, die Tag-Kardinalität kontrolliert zu halten. Eine Kombination aus 
 
 ## 9. Oxocard-Programm
 
-Die Oxocard-Programme befinden sich im Verzeichnis `oxocard/`. Die Dateien zeigen mehrere Entwicklungsstufen:
+Die Oxocard-Programme befinden sich im Verzeichnis `oxocard/`. Die vorangestellten Nummern bilden die tatsächliche Entwicklungs- und Testreihenfolge ab. Jede Stufe baut auf der vorherigen auf und ergänzt bewusst nur eine neue Funktion:
 
 | Datei | Zweck |
 |---|---|
-| `Test connection.npy` | prüft die Erreichbarkeit des InfluxDB-Health-Endpunkts |
-| `influxdbdata.npy` | liest und sendet einmalig einen Datenpunkt |
-| `autodata.npy` | sendet die Messwerte periodisch alle fünf Sekunden |
-| `autoinfluxdata.npy` | kombiniert periodischen Upload und Anzeige auf dem Oxocard-Display |
+| `01_testconnection.npy.npy` | prüft, ob der InfluxDB-Health-Endpunkt über das Netzwerk erreichbar ist |
+| `02_read_temperature.npy` | liest erstmals einen realen Sensorwert aus und zeigt die Temperatur an |
+| `03_single_upload.npy` | erstellt das Line Protocol und sendet Temperatur, Luftfeuchtigkeit, Luftdruck und Helligkeit einmalig an InfluxDB |
+| `04_periodic_upload.npy` | wiederholt den Upload automatisch alle fünf Sekunden |
+| `05_display_upload.npy` | kombiniert den periodischen Upload mit Messwert- und Statusanzeige auf dem Oxocard-Display |
+| `06_final_upload.npy` | ergänzt IAQ, validiert dessen Wertebereich und bildet die finale Programmversion |
 
 Obwohl die Dateiendung `.npy` üblicherweise für NumPy-Dateien verwendet wird, enthalten diese Dateien lesbaren Oxocard-Programmcode.
 
-### 9.1 Konfiguration des Endpunkts
+### 9.1 Iterativer Entwicklungsablauf
+
+Die Funktionen wurden nicht direkt in einem einzigen vollständigen Programm umgesetzt. Stattdessen erfolgte die Entwicklung in kleinen, einzeln prüfbaren Schritten:
+
+1. **Netzwerk prüfen:** Zuerst wurde mit `01_testconnection.npy.npy` ausschliesslich der InfluxDB-Health-Endpunkt aufgerufen. Damit liessen sich WLAN-, IP- oder Portprobleme untersuchen, bevor Datenbanklogik hinzukam.
+2. **Sensorzugriff prüfen:** `02_read_temperature.npy` liest nur die Temperatur und stellt sie in der Konsole und auf dem Display dar. Dieser Schritt bestätigt, dass Sensorzugriff, Datentyp und Anzeige funktionieren.
+3. **Einzelnen Datenpunkt schreiben:** `03_single_upload.npy` ergänzt die vier ursprünglichen Umgebungswerte, das InfluxDB Line Protocol, den Token und die HTTP-Header. Ein einzelner Upload ist einfacher zu kontrollieren als ein bereits laufender Dauerbetrieb.
+4. **Übertragung automatisieren:** `04_periodic_upload.npy` führt mit `millis()` und `lastSend` ein Intervall von fünf Sekunden ein. Dadurch entstehen kontinuierliche Zeitreihendaten.
+5. **Bedienbarkeit verbessern:** `05_display_upload.npy` zeigt die Messwerte und den Uploadstatus direkt auf der Oxocard an. Die Datenübertragung kann dadurch ohne zusätzliche Konsole kontrolliert werden.
+6. **Finale Sensorik ergänzen:** `06_final_upload.npy` nimmt IAQ als fünften Messwert auf. IAQ wird nur bei einem gültigen Wert zwischen 1 und 5 in den Request-Body geschrieben. Zusätzlich werden die HTTP-Header vor jedem Upload bereinigt und neu gesetzt.
+
+Dieses schrittweise Vorgehen reduziert die Komplexität bei der Fehlersuche. Tritt ein Fehler auf, lässt sich nachvollziehen, in welcher Entwicklungsstufe er erstmals entstanden ist. Gleichzeitig dokumentieren die nummerierten Dateien den Weg vom technischen Verbindungstest bis zur vollständigen Lösung. Damit wird die Umsetzung des zuvor entworfenen Datenflusses transparent und reproduzierbar.
+
+### 9.2 Konfiguration des Endpunkts
 
 Der Write-Endpunkt enthält Organisation, Bucket und Zeitpräzision:
 
@@ -325,7 +341,7 @@ http://<ERREICHBARE-IP>:8086/api/v2/write?org=TEKO&bucket=sensor_data&precision=
 
 Die im Programm eingetragene IP-Adresse muss aus dem WLAN der Oxocard erreichbar sein. `localhost` wäre falsch, weil es aus Sicht der Oxocard auf die Oxocard selbst zeigen würde. Je nach Netzwerk wird die LAN-Adresse des Hostsystems oder eine direkt erreichbare VM-Adresse verwendet.
 
-### 9.2 Authentifizierung und Header
+### 9.3 Authentifizierung und Header
 
 Der API-Token wird im Authorization-Header übertragen:
 
@@ -336,7 +352,7 @@ Content-Type: text/plain
 
 Der Token benötigt Schreibberechtigung für den Bucket `sensor_data`. Für eine Schulungsumgebung ist ein statischer Token einfach handhabbar. Für den produktiven Betrieb sollte er nicht im Quellcode gespeichert, regelmässig gewechselt und auf die minimal nötigen Rechte beschränkt werden.
 
-### 9.3 Auslesen der Sensoren
+### 9.4 Auslesen der Sensoren
 
 Das Programm verwendet folgende Funktionen:
 
@@ -345,34 +361,35 @@ getTemperature()   → Temperatur
 getHumidity()      → relative Luftfeuchtigkeit
 getPressure()      → Luftdruck
 getAmbientLux()    → Umgebungshelligkeit
+getIAQ()           → Innenraumluftqualität
 ```
 
-Die Werte werden in die Variablen `temperature`, `humidity`, `pressure` und `lux` übernommen. Im Line Protocol heisst das Helligkeitsfeld bewusst `brightness`.
+Die Werte werden in die Variablen `temperature`, `humidity`, `pressure`, `lux` und `iaq` übernommen. Im Line Protocol heisst das Helligkeitsfeld bewusst `brightness`. Der IAQ-Wert wird nur übertragen, wenn er zwischen 1 und 5 liegt. Dadurch verhindert das aktuelle Programm, dass ein ungültiger Initial- oder Fehlerwert in InfluxDB gespeichert wird.
 
-### 9.4 Zeitsteuerung
+### 9.5 Zeitsteuerung
 
-In `autoinfluxdata.npy` wird über `millis()` geprüft, ob seit dem letzten Versand mindestens 5000 Millisekunden vergangen sind. Damit werden neue Daten ungefähr alle fünf Sekunden übertragen, während die Anzeige weiterhin aktualisiert werden kann.
+In `06_final_upload.npy` wird über `millis()` geprüft, ob seit dem letzten Versand mindestens 5000 Millisekunden vergangen sind. Damit werden neue Daten ungefähr alle fünf Sekunden übertragen, während die Anzeige weiterhin aktualisiert werden kann.
 
-### 9.5 Aufbau des Line Protocol
+### 9.6 Aufbau des Line Protocol
 
 Der Request-Body wird schrittweise zusammengesetzt:
 
 ```text
-environment,device=oxocard01 temperature=<WERT>,humidity=<WERT>,pressure=<WERT>,brightness=<WERT>
+environment,device=oxocard01 temperature=<WERT>,humidity=<WERT>,pressure=<WERT>,brightness=<WERT>,iaq=<WERT>
 ```
 
 Dabei gelten folgende Rollen:
 
 - `environment` ist das Measurement.
 - `device=oxocard01` ist ein Tag.
-- Nach dem Leerzeichen folgen vier Fields.
+- Nach dem Leerzeichen folgen bis zu fünf Fields.
 - Kommas trennen Tags beziehungsweise Fields.
 
 Ein syntaktischer Fehler, ein fehlendes Leerzeichen oder ein nichtnumerischer Field-Wert führt dazu, dass InfluxDB den Datenpunkt ablehnt.
 
-### 9.6 Upload und Statusanzeige
+### 9.7 Upload und Statusanzeige
 
-`postRequest(url, body)` führt die HTTP-Anfrage aus. Bei Erfolg erscheint `Upload successful`; bei einem Fehler wird `Upload failed` ausgegeben. Die Variante `autoinfluxdata.npy` zeigt zusätzlich die vier Messwerte und den Verbindungsstatus auf dem Oxocard-Display an.
+`postRequest(url, body)` führt die HTTP-Anfrage aus. Bei Erfolg erscheint `Upload successful`; bei einem Fehler wird `Upload failed` ausgegeben. Die aktuelle Variante `06_final_upload.npy` zeigt zusätzlich alle fünf Messwerte und den Verbindungsstatus auf dem Oxocard-Display an. Vor jedem Upload werden die bisherigen Request-Header mit `clearRequestHeaders()` entfernt und anschliessend neu gesetzt. Dieser Schritt ist notwendig, weil das wiederholte Hinzufügen der Header ohne vorheriges Löschen den verfügbaren Speicher der Oxocard kontinuierlich belegte.
 
 Die Rückmeldung erleichtert die Inbetriebnahme, ersetzt aber noch kein dauerhaftes Fehlerprotokoll. Nicht erfolgreich gesendete Werte werden aktuell nicht gepuffert oder erneut übertragen.
 
@@ -443,6 +460,19 @@ Die Provisionierung ist in vier Skripte aufgeteilt:
 | `03-tools.sh` | installiert Werkzeuge wie Git, jq, tree, vim und htop |
 | `04-start-stack.sh` | startet den Compose-Stack im Verzeichnis `/project` |
 
+Die Nummerierung ist bewusst gewählt. Das `Vagrantfile` ruft die Skripte von `01` bis `04` in genau dieser Reihenfolge auf. Damit sind die Abhängigkeiten zwischen den Arbeitsschritten direkt an den Dateinamen erkennbar: Docker kann erst nach der Systemvorbereitung installiert werden, und der Compose-Stack kann erst starten, wenn Docker verfügbar ist.
+
+Der automatisierte Ablauf bei der ersten Provisionierung ist:
+
+1. **`01-system.sh` – Betriebssystem vorbereiten:** Das Skript aktualisiert die Paketinformationen und bestehenden Pakete. Danach installiert es grundlegende Komponenten wie CA-Zertifikate, `curl`, GnuPG und `lsb-release`. Auf ein vollständiges Distributions- oder Kernel-Upgrade wird bewusst verzichtet, weil dadurch die Gastmodule für VirtualBox- oder Parallels-Freigaben beeinträchtigt werden könnten.
+2. **`02-docker.sh` – Containerplattform installieren:** Zuerst werden Schlüsselverzeichnis, Docker-GPG-Schlüssel und das offizielle Docker-Paketrepository eingerichtet. Die Existenz von Schlüssel und Repository wird vor der Erstellung geprüft, damit wiederholte Provisionierungen nicht unnötig doppelte Einträge erzeugen. Anschliessend installiert das Skript Docker Engine, CLI, containerd, Buildx und das Compose-Plugin. Der Docker-Dienst wird aktiviert, sofort gestartet und der Benutzer `vagrant` der Docker-Gruppe hinzugefügt.
+3. **`03-tools.sh` – Administrationswerkzeuge ergänzen:** Dieses Skript installiert Hilfsmittel für Betrieb und Fehlersuche, darunter Git, `htop`, `jq`, `tree`, Editoren, `wget` und Netzwerkwerkzeuge. Diese Programme sind nicht alle für den eigentlichen Containerbetrieb erforderlich, erleichtern jedoch Kontrolle, Diagnose und Wartung der VM.
+4. **`04-start-stack.sh` – Anwendung starten:** Vor dem Start kontrolliert das Skript, ob `/project/docker-compose.yml` über den synchronisierten Projektordner verfügbar ist. Fehlt die Datei, wird mit einer verständlichen Fehlermeldung abgebrochen. Andernfalls wechselt das Skript nach `/project`, führt `docker compose up -d --build --remove-orphans` aus und zeigt danach mit `docker compose ps` den Zustand der Services an.
+
+Alle vier Skripte verwenden `set -euo pipefail`. Dadurch wird die Provisionierung bei einem fehlerhaften Befehl, einer nicht gesetzten Variable oder einem Fehler innerhalb einer Befehlskette abgebrochen. Ein späterer Schritt läuft somit nicht auf einer unvollständig vorbereiteten Umgebung weiter. Die Paketinstallation erfolgt mit `DEBIAN_FRONTEND=noninteractive`, sodass während der automatisierten Ausführung keine manuellen Eingaben erforderlich sind.
+
+Die Aufteilung in mehrere kleine Skripte verbessert Nachvollziehbarkeit und Wartbarkeit. Einzelne Schritte können gezielt geprüft oder erneut ausgeführt werden, und im Fehlerfall ist sofort ersichtlich, ob das Problem bei der Systemvorbereitung, Docker-Installation, Werkzeugausstattung oder beim Stack-Start liegt.
+
 Der Stack wird standardmässig beim ersten `vagrant up` gestartet. Mit `DATABASE_AUTOSTART=0` kann dieser Schritt beim Provisionieren unterdrückt werden.
 
 Nach `vagrant halt` und einem erneuten `vagrant up` laufen die Provisioner normalerweise nicht nochmals. Aufgrund von `restart: unless-stopped` sollten die Container nach dem Start des Docker-Dienstes dennoch automatisch wieder anlaufen. Falls ein Provisionierungsschritt erneut ausgeführt werden soll, wird `vagrant provision` oder `vagrant up --provision` verwendet.
@@ -469,9 +499,9 @@ Der Token in der Provisionierungsdatei muss mit dem Token der InfluxDB-Initialis
 
 ### 12.2 Dashboard-Provisionierung
 
-Die Datenquelle ist im Repository provisioniert. Das eigentliche Dashboard wird derzeit in Grafana erstellt und im persistenten Volume gespeichert; ein Dashboard-Provider und eine exportierte Dashboard-JSON-Datei sind im aktuellen Repository noch nicht vorhanden.
+Neben der Datenquelle ist auch das Dashboard vollständig im Repository provisioniert. Die Provider-Datei `dashboard.yml` weist Grafana an, Dashboards aus `/etc/grafana/provisioning/dashboards` einzulesen. Die Datei `oxocard-dashboard.json` enthält das Dashboard **Oxocard Environmental Monitoring** mit allen Stat-, Zeitreihen- und Tabellen-Panels.
 
-Für einen vollständig reproduzierbaren Aufbau sollte das Dashboard später exportiert und beispielsweise so abgelegt werden:
+Die verwendete Struktur lautet:
 
 ```text
 grafana/provisioning/
@@ -482,17 +512,17 @@ grafana/provisioning/
     └── oxocard-dashboard.json
 ```
 
-Damit wäre nach einem Neuaufbau nicht nur die Datenquelle, sondern auch das vollständige Dashboard automatisch verfügbar.
+Das gesamte Verzeichnis `grafana/provisioning` wird durch Docker Compose schreibgeschützt in den Grafana-Container eingebunden. Dadurch sind nach einem Neuaufbau sowohl die Datenquelle als auch das vollständige Dashboard automatisch verfügbar. Das Dashboard ist versionierbar und kann gemeinsam mit der restlichen Infrastruktur nachvollziehbar weiterentwickelt werden.
 
 ## 13. Aufbau des Grafana-Dashboards
 
 Das Dashboard ist so konzipiert, dass zuerst der aktuelle Zustand sichtbar ist und darunter die zeitliche Entwicklung sowie die Rohdaten analysiert werden können.
 
 ```text
-┌────────────────┬────────────────┬────────────────┬────────────────┐
-│ Temperatur     │ Luftfeuchte    │ Luftdruck      │ Helligkeit     │
-│ aktueller Wert │ aktueller Wert │ aktueller Wert │ aktueller Wert │
-└────────────────┴────────────────┴────────────────┴────────────────┘
+┌─────────────┬─────────────┬─────────────┬─────────────┬─────────────┐
+│ Temperatur │ Luftfeuchte │ Luftdruck   │ Helligkeit  │ Luftqualität│
+│ aktuell    │ aktuell     │ aktuell     │ aktuell     │ aktuell     │
+└─────────────┴─────────────┴─────────────┴─────────────┴─────────────┘
 ┌───────────────────────────────────────────────────────────────────┐
 │ Temperaturverlauf                                                │
 ├───────────────────────────────────────────────────────────────────┤
@@ -501,6 +531,8 @@ Das Dashboard ist so konzipiert, dass zuerst der aktuelle Zustand sichtbar ist u
 │ Luftdruckverlauf                                                 │
 ├───────────────────────────────────────────────────────────────────┤
 │ Helligkeitsverlauf                                               │
+├───────────────────────────────────────────────────────────────────┤
+│ Luftqualitätsverlauf                                             │
 ├───────────────────────────────────────────────────────────────────┤
 │ Tabelle der Rohmesswerte                                         │
 └───────────────────────────────────────────────────────────────────┘
@@ -525,7 +557,7 @@ Für Zeitreihen kann zusätzlich eine Fensteraggregation verwendet werden. Sie b
 
 ### 13.2 Stat-Panels: aktuelle Werte
 
-Die oberste Zeile enthält vier **Stat-Panels**. Sie beantworten die Frage: «Wie ist der aktuelle Zustand?» Für jedes Field wird der letzte Wert des gewählten Zeitraums ermittelt.
+Die oberste Zeile enthält fünf **Stat-Panels**. Sie beantworten die Frage: «Wie ist der aktuelle Zustand?» Für jedes Field wird der letzte Wert des gewählten Zeitraums ermittelt.
 
 Beispiel für Temperatur:
 
@@ -546,6 +578,7 @@ Für die übrigen Panels wird nur `_field` angepasst:
 | Aktuelle Luftfeuchtigkeit | `humidity` | % |
 | Aktueller Luftdruck | `pressure` | hPa |
 | Aktuelle Helligkeit | `brightness` | lx |
+| Aktuelle Luftqualität | `iaq` | Index 1–5 |
 
 Sinnvolle Grenzwerte können die Werte farblich kennzeichnen. Diese Schwellen dienen der visuellen Orientierung und müssen fachlich definiert werden; sie sind keine kalibrierten Alarmgrenzen.
 
@@ -617,7 +650,24 @@ from(bucket: "sensor_data")
 
 Das Panel zeigt Beleuchtungswechsel, Tag-Nacht-Verläufe oder eine Abdeckung des Sensors. Da Helligkeit sprunghaft wechseln kann, ist neben dem Mittelwert je nach Analyse auch `max` oder `last` als Aggregation sinnvoll.
 
-### 13.7 Rohdatentabelle
+### 13.7 Luftqualitätsverlauf
+
+**Visualisierung:** Time series
+**Field:** `iaq`
+**Einheit:** IAQ-Index 1–5
+
+```flux
+from(bucket: "sensor_data")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r._measurement == "environment")
+  |> filter(fn: (r) => r.device == "oxocard01")
+  |> filter(fn: (r) => r._field == "iaq")
+  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)
+```
+
+Das Panel stellt die Entwicklung der Innenraumluftqualität dar. Ein tiefer IAQ-Index entspricht im verwendeten Messmodell einer besseren, ein höherer Index einer schlechteren Luftqualität. Die Prüfung im Oxocard-Programm stellt sicher, dass nur Werte von 1 bis 5 gespeichert werden.
+
+### 13.8 Rohdatentabelle
 
 **Visualisierung:** Table
 **Zweck:** Kontrolle einzelner Zeitstempel und Messwerte
@@ -629,16 +679,16 @@ from(bucket: "sensor_data")
   |> filter(fn: (r) => r.device == "oxocard01")
   |> filter(fn: (r) => contains(
       value: r._field,
-      set: ["temperature", "humidity", "pressure", "brightness"]
+      set: ["temperature", "humidity", "pressure", "brightness", "iaq"]
   ))
   |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
-  |> keep(columns: ["_time", "device", "temperature", "humidity", "pressure", "brightness"])
+  |> keep(columns: ["_time", "device", "temperature", "humidity", "pressure", "brightness", "iaq"])
   |> sort(columns: ["_time"], desc: true)
 ```
 
-`pivot()` stellt die vier Fields als eigene Spalten dar. Dadurch steht pro Zeitstempel eine verständliche Tabellenzeile zur Verfügung. Die Tabelle ist insbesondere für Plausibilitätsprüfungen, Fehlersuche und Präsentationsnachweise nützlich.
+`pivot()` stellt die fünf Fields als eigene Spalten dar. Dadurch steht pro Zeitstempel eine verständliche Tabellenzeile zur Verfügung. Die Tabelle ist insbesondere für Plausibilitätsprüfungen, Fehlersuche und Präsentationsnachweise nützlich. Falls IAQ wegen eines ungültigen Werts nicht übertragen wurde, bleibt die entsprechende Zelle leer.
 
-### 13.8 Dashboard-Einstellungen
+### 13.9 Dashboard-Einstellungen
 
 Empfohlene Einstellungen:
 
@@ -792,7 +842,7 @@ Ein vollständiges Löschen der VM mit `vagrant destroy` entfernt die virtuelle 
 
 Für die Abgabe und Präsentation sollten die folgenden Abbildungen ergänzt werden. Empfohlen wird ein Verzeichnis `docs/images/` mit aussagekräftigen Dateinamen.
 
-> **Screenshot-Platzhalter 1:** Oxocard Science+ mit den vier aktuellen Sensorwerten und dem Status «Connected»
+> **Screenshot-Platzhalter 1:** Oxocard Science+ mit den fünf aktuellen Sensorwerten und dem Status «Connected»
 > Empfohlene Datei: `docs/images/oxocard-display.jpg`
 
 > **Screenshot-Platzhalter 2:** laufende InfluxDB- und Grafana-Container
@@ -804,7 +854,7 @@ Für die Abgabe und Präsentation sollten die folgenden Abbildungen ergänzt wer
 > **Screenshot-Platzhalter 4:** automatisch provisionierte InfluxDB-Datenquelle in Grafana
 > Empfohlene Datei: `docs/images/grafana-datasource.png`
 
-> **Screenshot-Platzhalter 5:** vollständiges Oxocard-Dashboard mit Stat-Panels, vier Zeitreihen und Rohdatentabelle
+> **Screenshot-Platzhalter 5:** vollständiges Oxocard-Dashboard mit fünf Stat-Panels, fünf Zeitreihen und Rohdatentabelle
 > Empfohlene Datei: `docs/images/grafana-dashboard.png`
 
 > **Screenshot-Platzhalter 6:** Detailansicht eines Time-Series-Panels mit Flux-Abfrage
@@ -814,31 +864,60 @@ Jeder Screenshot sollte in der finalen Projektdokumentation eine Bildnummer, ein
 
 ## 17. Herausforderungen und Erkenntnisse
 
-### 18.1 Erreichbarkeit über mehrere Netzwerkebenen
+### 17.1 Erreichbarkeit über mehrere Netzwerkebenen
 
 Die Oxocard, das Hostsystem, die Vagrant-VM und die Docker-Container befinden sich in unterschiedlichen Netzwerkkontexten. Eine Adresse, die auf dem Host funktioniert, ist nicht automatisch von der Oxocard erreichbar. Die wichtigste Erkenntnis ist, die Verbindung schrittweise zu testen: InfluxDB-Healthcheck, Zugriff vom Host und zuletzt Zugriff aus dem WLAN der Oxocard.
 
-### 18.2 Startreihenfolge der Container
+### 17.2 Startreihenfolge der Container
 
 Ein gestarteter Container ist noch nicht zwingend betriebsbereit. InfluxDB benötigt beim ersten Start Zeit für Organisation, Bucket und Benutzer. Der Healthcheck zusammen mit `condition: service_healthy` reduziert Fehler beim Grafana-Start. Gleichzeitig ist zu beachten, dass der Healthcheck von einem im Image verfügbaren HTTP-Werkzeug abhängt.
 
-### 18.3 Abstimmung der Zugangsdaten
+### 17.3 Abstimmung der Zugangsdaten
 
 InfluxDB, Grafana und Oxocard müssen denselben Organisationsnamen, Bucket und passenden Token verwenden. Derzeit ist der Token an mehreren Stellen hinterlegt. Das ist fehleranfällig und sicherheitstechnisch nur für eine isolierte Lernumgebung vertretbar.
 
-### 18.4 Tags und Fields
+### 17.4 Tags und Fields
 
 Die Unterscheidung ist für die Qualität des Datenmodells zentral. Tags verbessern Filterabfragen, erhöhen bei zu vielen eindeutigen Kombinationen jedoch die Kardinalität. Kontinuierliche Sensorwerte werden deshalb als Fields und der Gerätename als Tag gespeichert.
 
-### 18.5 Grafana-Provisionierung
+### 17.5 Grafana-Provisionierung
 
-Eine automatisch eingerichtete Datenquelle ist noch kein vollständig reproduzierbares Dashboard. Manuell in Grafana erstellte Panels bleiben zwar im Volume erhalten, sind aber nicht als Code im Repository sichtbar. Der Export und die Provisionierung des Dashboard-JSON sind deshalb ein wichtiger nächster Schritt.
+Eine automatisch eingerichtete Datenquelle allein ergibt noch kein vollständig reproduzierbares Dashboard. Deshalb wurden zusätzlich ein Dashboard-Provider und das exportierte Dashboard-JSON im Repository hinterlegt. Wichtig war dabei eine stabile Datenquellen-UID, damit alle Panels nach einem Neuaufbau automatisch auf die provisionierte InfluxDB-Datenquelle verweisen.
 
-### 18.6 Zeitstempel und Datenverluste
+### 17.6 Vollgelaufener Speicher – wenn HTTP-Header nicht gehen wollen
+
+Während eines längeren Testlaufs funktionierte die Übertragung zunächst einwandfrei. Nach einigen Minuten beschloss die Oxocard jedoch, dass sie für diesen Tag genügend Daten gesendet hatte: In InfluxDB und Grafana kamen plötzlich keine neuen Messwerte mehr an.
+
+Die Ursache lag bei den HTTP-Headern. Bei jedem Fünf-Sekunden-Zyklus wurden dieselben drei Header erneut hinzugefügt:
+
+```text
+Authorization
+Content-Type
+Content-Length
+```
+
+NanoPy ersetzte die bestehenden Header nicht automatisch. Stattdessen machten sie es sich im Speicher gemütlich: Alle fünf Sekunden kamen drei neue Gäste dazu, aber keiner verliess die Party. Die Headerliste wurde dadurch immer länger, bis im Speicher kein Platz mehr vorhanden war und die Oxocard die Datenübertragung einstellte.
+
+Der Fehler war besonders schwer zu erkennen, weil einzelne Requests problemlos funktionierten. Erst der Dauerbetrieb zeigte, dass die vermeintlich kleine Header-Party langsam, aber zuverlässig den gesamten Speicher belegte.
+
+Die Lösung bestand darin, die vorhandenen Header vor jedem Request ausdrücklich zurückzusetzen:
+
+```text
+clearRequestHeaders()
+addRequestHeader("Authorization", "Token " + token)
+addRequestHeader("Content-Type", "text/plain")
+addRequestHeader("Content-Length", strLen(body))
+```
+
+`clearRequestHeaders()` beendet die Party vor jedem neuen Upload und sorgt für eine leere Gästeliste. Anschliessend werden nur die drei tatsächlich benötigten Header gesetzt. Dadurch wächst die Headerliste nicht mehr mit jedem Sendevorgang an und die Übertragung bleibt stabil.
+
+Trotz der humorvollen Beschreibung war die technische Erkenntnis wichtig: Wiederholt ausgeführter Code muss nicht nur funktional, sondern auch hinsichtlich seines Ressourcenverbrauchs über längere Zeit getestet werden. Ein einzelner erfolgreicher Upload hätte dieses Problem niemals sichtbar gemacht.
+
+### 17.7 Zeitstempel und Datenverluste
 
 Die serverseitige Zeitvergabe ist einfach, bildet bei Verbindungsunterbrüchen aber nicht den exakten Messzeitpunkt ab. Da die Oxocard fehlgeschlagene Uploads aktuell nicht puffert, entstehen in solchen Fällen Lücken. Für Messanwendungen mit Nachweispflicht wären lokale Warteschlange, Wiederholungslogik und synchronisierte Gerätezeit nötig.
 
-### 18.7 Sensorqualität
+### 17.8 Sensorqualität
 
 Die Messwerte sind für einen technischen Prototyp geeignet, sollten aber nicht ohne Kalibrierung als Referenzmessung interpretiert werden. Besonders die Temperatur kann durch Eigenerwärmung des Geräts oder den Installationsort beeinflusst werden.
 
@@ -860,8 +939,9 @@ Die Messwerte sind für einen technischen Prototyp geeignet, sollten aber nicht 
 - [x] Bucket, Measurement, Tags und Fields modelliert
 - [x] Oxocard mit WLAN verbunden
 - [x] HTTP-Kommunikation getestet
-- [x] vier Umgebungswerte in einem Datenpunkt übertragen
+- [x] fünf Umgebungswerte einschliesslich IAQ in einem Datenpunkt übertragen
 - [x] periodischer Versand im Fünf-Sekunden-Intervall umgesetzt
+- [x] Speicherproblem durch wiederholt angehängte HTTP-Header erkannt und behoben
 - [ ] Retention-Dauer fachlich festlegen
 - [ ] Last-, Speicher- und Langzeitevaluation durchführen
 
@@ -869,33 +949,30 @@ Die Messwerte sind für einen technischen Prototyp geeignet, sollten aber nicht 
 
 - [x] InfluxDB als Grafana-Datenquelle verfügbar
 - [x] Panelkonzept und Flux-Abfragen dokumentiert
-- [ ] Dashboard als JSON exportieren und automatisch provisionieren
+- [x] Dashboard als JSON exportiert, versioniert und automatisch provisioniert
 - [ ] finale Screenshots in die Dokumentation einfügen
 
 ## 19. Ausblick
 
 Das Projekt kann in mehreren Richtungen erweitert werden:
 
-1. **Dashboard als Code:** Dashboard-JSON exportieren, versionieren und beim Grafana-Start automatisch laden.
-2. **Retention und Downsampling:** Rohdaten nur begrenzt aufbewahren und langfristig verdichtete Stunden- oder Tageswerte speichern.
-3. **Mehrere Geräte:** zusätzliche Oxocards über den Tag `device` integrieren und in Grafana auswählbar machen.
-4. **Zusätzliche Metadaten:** Raum und Standort als kontrollierte Tags ergänzen.
-5. **Weitere Sensoren:** beispielsweise CO₂, Feinstaub oder Bewegungsdaten in geeigneten Measurements erfassen.
-6. **Alarmierung:** Grenzwerte definieren und Benachrichtigungen über E-Mail oder Kollaborationsplattformen versenden.
-7. **Sichere Kommunikation:** HTTPS, Reverse Proxy und Zertifikate einsetzen.
-8. **Secret Management:** Tokens und Passwörter aus den Quell- und Provisionierungsdateien entfernen.
-9. **Robustere Übertragung:** lokale Pufferung, Retry mit Backoff und eigene Zeitstempel implementieren.
-10. **Datenqualität:** Sensoren kalibrieren, Ausreisser erkennen und fehlende Messungen sichtbar machen.
-11. **Performance-Evaluation:** Schreiblast, Antwortzeiten, Speicherverbrauch und Kardinalität mit mehreren Geräten messen.
-12. **Alternative Übertragung:** MQTT mit einem Broker prüfen, wenn viele Geräte oder instabile Verbindungen unterstützt werden sollen.
-13. **Backup und Restore:** Sicherungs- und Wiederherstellungsverfahren für InfluxDB und Grafana dokumentieren und testen.
+1. **Retention und Downsampling:** Rohdaten nur begrenzt aufbewahren und langfristig verdichtete Stunden- oder Tageswerte speichern.
+2. **Mehrere Geräte:** zusätzliche Oxocards über den Tag `device` integrieren und in Grafana auswählbar machen.
+3. **Alarmierung:** Grenzwerte definieren und Benachrichtigungen über E-Mail oder Kollaborationsplattformen versenden.
+4. **Sichere Kommunikation:** HTTPS, Reverse Proxy und Zertifikate einsetzen.
+5. **Secret Management:** Tokens und Passwörter aus den Quell- und Provisionierungsdateien entfernen.
+6. **Robustere Übertragung:** lokale Pufferung, Retry mit Backoff und eigene Zeitstempel implementieren.
+7. **Datenqualität:** Sensoren kalibrieren, Ausreisser erkennen und fehlende Messungen sichtbar machen.
+8. **Performance-Evaluation:** Schreiblast, Antwortzeiten, Speicherverbrauch und Kardinalität mit mehreren Geräten messen.
+9. **Alternative Übertragung:** MQTT mit einem Broker prüfen, wenn viele Geräte oder instabile Verbindungen unterstützt werden sollen.
+10. **Backup und Restore:** Sicherungs- und Wiederherstellungsverfahren für InfluxDB und Grafana dokumentieren und testen.
 
 ## 20. Fazit
 
-Im Rahmen dieses Projekts wurde eine vollständige IoT-Zeitreihenpipeline konzipiert und in wesentlichen Teilen umgesetzt. Die Oxocard Science+ erfasst vier Umgebungsgrössen und überträgt sie regelmässig per HTTP an InfluxDB. Das Datenmodell trennt den indexierten Gerätebezug von den kontinuierlich wechselnden Messwerten und bleibt dadurch verständlich sowie erweiterbar.
+Im Rahmen dieses Projekts wurde eine vollständige IoT-Zeitreihenpipeline konzipiert und in wesentlichen Teilen umgesetzt. Die Oxocard Science+ erfasst fünf Umgebungsgrössen einschliesslich der Innenraumluftqualität und überträgt sie regelmässig per HTTP an InfluxDB. Das Datenmodell trennt den indexierten Gerätebezug von den kontinuierlich wechselnden Messwerten und bleibt dadurch verständlich sowie erweiterbar.
 
 InfluxDB eignet sich aufgrund seines Zeitreihenmodells und seiner HTTP-Schnittstelle gut für die Speicherung. Grafana ergänzt die Lösung um eine übersichtliche Darstellung aktueller Werte, historischer Verläufe und Rohdaten. Docker Compose sorgt für klar definierte Dienste, während Vagrant die zugrunde liegende Serverumgebung reproduzierbar bereitstellt.
 
 Der Prototyp beantwortet die Forschungsfrage dahingehend, dass ein schlankes Modell mit einem gemeinsamen Bucket, einem fachlich passenden Measurement, wenigen kontrollierten Tags und numerischen Fields eine gute Grundlage für effiziente IoT-Auswertungen bildet. Gleichzeitig zeigt das Projekt, dass ein zuverlässiges Gesamtsystem mehr als die Datenbank allein umfasst: Netzwerkzugriff, Startreihenfolge, Authentifizierung, Zeitstempel, Persistenz und reproduzierbare Dashboards sind ebenso entscheidend.
 
-Mit Dashboard-Provisionierung, definierter Retention, sicherem Secret Management und einer systematischen Performance-Evaluation kann die Lösung zu einer belastbaren Plattform für Smart-Building-, Umweltmonitoring- oder Industrie-4.0-Anwendungen weiterentwickelt werden.
+Mit definierter Retention, sicherem Secret Management und einer systematischen Performance-Evaluation kann die Lösung zu einer belastbaren Plattform für Smart-Building-, Umweltmonitoring- oder Industrie-4.0-Anwendungen weiterentwickelt werden.
