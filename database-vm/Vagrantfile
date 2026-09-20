@@ -1,3 +1,5 @@
+require_relative "port_check_patch"
+
 Vagrant.require_version ">= 2.4.0"
 
 project_root = File.expand_path("..", __dir__)
