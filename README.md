@@ -780,7 +780,7 @@ Für das Testen der vollständigen InfluxDB- und Grafana-Umgebung ist keine eige
 
 Die vollständige Anleitung befindet sich unter:
 
-[Beispieldaten importieren und in InlfuxDB und Grafana anzeigen](https://github.com/bromag/InfluxDB-Oxocard-Project/blob/main/sample-data/README.md)
+[Beispieldaten importieren und in InlfuxDB und Grafana anzeigen](sample-data/README.md)
 
 ### 14.7 Daten prüfen
 
