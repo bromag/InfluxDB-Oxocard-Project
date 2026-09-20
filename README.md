@@ -104,12 +104,12 @@ Die Forschungsfrage wird im Projekt praktisch untersucht. Im Vordergrund stehen 
 ┌────────────────────────────────────────────────────┐
 │ Ubuntu-VM, bereitgestellt mit Vagrant              │
 │                                                    │
-│  ┌──────────────────┐    ┌─────────────────────┐  │
-│  │ InfluxDB 2.7     │◄───│ Grafana 13.1       │  │
-│  │ Port 8086        │    │ Port 3000           │  │
-│  │ Bucket:          │    │ Flux-Datenquelle    │  │
-│  │ sensor_data      │    │ Dashboard           │  │
-│  └────────┬─────────┘    └─────────────────────┘  │
+│  ┌──────────────────┐    ┌─────────────────────┐   │
+│  │ InfluxDB 2.7     │◄───│ Grafana 13.1        │   │
+│  │ Port 8086        │    │ Port 3000           │   │
+│  │ Bucket:          │    │ Flux-Datenquelle    │   │
+│  │ sensor_data      │    │ Dashboard           │   │
+│  └────────┬─────────┘    └─────────────────────┘   │
 │           │                                        │
 │  persistente Docker-Volumes                        │
 └────────────────────────────────────────────────────┘
@@ -117,8 +117,8 @@ Die Forschungsfrage wird im Projekt praktisch untersucht. Im Vordergrund stehen 
              │ Portweiterleitung / privates Netzwerk
              │
 ┌────────────┴─────────────┐
-│ Hostsystem              │
-│ Browser und Verwaltung  │
+│ Hostsystem               │
+│ Browser und Verwaltung   │
 └──────────────────────────┘
 ```
 
@@ -429,7 +429,7 @@ Die aktuelle Compose-Datei setzt den Grafana-Administrator direkt auf `admin`/`a
 Docker Compose erstellt das benannte Netzwerk `influxdb-network`. Innerhalb dieses Netzwerks kann Grafana InfluxDB über den Servicenamen erreichen:
 
 ```text
-http://influxdb:8086
+http://localhost:8086
 ```
 
 Diese interne Adresse ist stabil und unabhängig von der IP-Adresse des Containers. Die Oxocard befindet sich ausserhalb des Docker-Netzwerks und verwendet deshalb eine vom WLAN erreichbare IP-Adresse.
@@ -520,21 +520,21 @@ Das Dashboard ist so konzipiert, dass zuerst der aktuelle Zustand sichtbar ist u
 
 ```text
 ┌─────────────┬─────────────┬─────────────┬─────────────┬─────────────┐
-│ Temperatur │ Luftfeuchte │ Luftdruck   │ Helligkeit  │ Luftqualität│
-│ aktuell    │ aktuell     │ aktuell     │ aktuell     │ aktuell     │
+│ Temperatur  │ Luftfeuchte │ Luftdruck   │ Helligkeit  │ Luftqualität│
+│ aktuell     │ aktuell     │ aktuell     │ aktuell     │ aktuell     │
 └─────────────┴─────────────┴─────────────┴─────────────┴─────────────┘
 ┌───────────────────────────────────────────────────────────────────┐
-│ Temperaturverlauf                                                │
+│ Temperaturverlauf                                                 │
 ├───────────────────────────────────────────────────────────────────┤
-│ Verlauf der Luftfeuchtigkeit                                     │
+│ Verlauf der Luftfeuchtigkeit                                      │
 ├───────────────────────────────────────────────────────────────────┤
-│ Luftdruckverlauf                                                 │
+│ Luftdruckverlauf                                                  │
 ├───────────────────────────────────────────────────────────────────┤
-│ Helligkeitsverlauf                                               │
+│ Helligkeitsverlauf                                                │
 ├───────────────────────────────────────────────────────────────────┤
-│ Luftqualitätsverlauf                                             │
+│ Luftqualitätsverlauf                                              │
 ├───────────────────────────────────────────────────────────────────┤
-│ Tabelle der Rohmesswerte                                         │
+│ Tabelle der Rohmesswerte                                          │
 └───────────────────────────────────────────────────────────────────┘
 ```
 
@@ -719,18 +719,18 @@ git clone <REPOSITORY-URL>
 cd InfluxDB-Oxocard-Project
 ```
 
-Da es sich um eine isolierte Test- und Schulungsumgebung handelt, wird die Datei `.env` mit den benötigten Demo-Zugangsdaten im Repository mitgeführt. Nach dem Klonen ist deshalb keine zusätzliche Erstellung der Datei erforderlich.
+Da es sich um eine isolierte Test- und Schulungsumgebung handelt, wird die Datei `.env.example` mit den benötigten Demo-INFLUXDB-Daten im Repository mitgeführt. Nach dem Klonen ist deshalb nue das erstellen des .env nötig sowie das anpassen von USERNAME und PASSWORD bei INFLUXDB und GRAFANA
 
 Die Konfiguration enthält folgende Werte:
 
 ```dotenv
-INFLUXDB_USERNAME=admin
-INFLUXDB_PASSWORD=admin12345
+INFLUXDB_USERNAME="dein Benutzername"
+INFLUXDB_PASSWORD="dein Passwort"
 INFLUXDB_ORG=TEKO
 INFLUXDB_BUCKET=sensor_data
 INFLUXDB_ADMIN_TOKEN=teko-database-design-token
-GF_ADMIN_USER=admin
-GF_ADMIN_PASSWORD=admin12345
+GRAFANA_USERNAME="dein Benutzername"
+GRAFANA_PASSWORD="dein Passwort"
 ```
 
 Der Token in `.env`, in `grafana/provisioning/datasources/influxdb.yml` und im Oxocard-Programm muss übereinstimmen. Im aktuellen Entwicklungsstand erfolgt diese Abstimmung manuell. Die mitgelieferten Zugangsdaten sind ausschliesslich für diese Testumgebung vorgesehen und dürfen nicht für andere Systeme wiederverwendet werden. Für eine produktive oder öffentlich erreichbare Installation müssten `.env` und Tokens aus der Versionsverwaltung entfernt und durch ein geeignetes Secret Management ersetzt werden. Die Datei `.env.example` bleibt als Vorlage für abweichende lokale Konfigurationen bestehen.
@@ -774,7 +774,15 @@ Im Oxocard-Programm sind folgende Werte zu prüfen:
 
 Danach wird das Programm auf die Oxocard übertragen und gestartet. Auf dem Display beziehungsweise in der seriellen Ausgabe muss `Upload successful` oder `Connected` erscheinen.
 
-### 14.6 Daten prüfen
+### 14.6 Testen ohne Oxocard
+
+Für das Testen der vollständigen InfluxDB- und Grafana-Umgebung ist keine eigene Oxocard erforderlich. Das Repository enthält einen exportierten Datensatz mit echten Sensormesswerten sowie ein Skript für den automatischen Import.
+
+Die vollständige Anleitung befindet sich unter:
+
+[Beispieldaten importieren und in InlfuxDB und Grafana anzeigen](https://github.com/bromag/InfluxDB-Oxocard-Project/blob/main/sample-data/README.md)
+
+### 14.7 Daten prüfen
 
 In der InfluxDB-Oberfläche kann mit einer einfachen Flux-Abfrage geprüft werden, ob Daten vorhanden sind:
 
@@ -840,27 +848,15 @@ Ein vollständiges Löschen der VM mit `vagrant destroy` entfernt die virtuelle 
 
 ## 16. Screenshots und Nachweise
 
-Für die Abgabe und Präsentation sollten die folgenden Abbildungen ergänzt werden. Empfohlen wird ein Verzeichnis `docs/images/` mit aussagekräftigen Dateinamen.
 
-> **Screenshot-Platzhalter 1:** Oxocard Science+ mit den fünf aktuellen Sensorwerten und dem Status «Connected»
-> Empfohlene Datei: `docs/images/oxocard-display.jpg`
+![bucket](docs/images/bucket.png)
+Bucket: Die Abbildung zeigt den InfluxDB-Bucket sensor_data, in dem die von der Oxocard übertragenen Sensordaten dauerhaft gespeichert werden.
 
-> **Screenshot-Platzhalter 2:** laufende InfluxDB- und Grafana-Container
-> Empfohlene Datei: `docs/images/docker-compose-status.png`
+![sensoren](docs/images/sensoren.png)
+Sensorfelder: Der InfluxDB Data Explorer zeigt das Measurement environment mit den fünf gespeicherten Fields brightness, humidity, iaq, pressure und temperature.
 
-> **Screenshot-Platzhalter 3:** InfluxDB Data Explorer mit Messwerten aus `sensor_data`
-> Empfohlene Datei: `docs/images/influxdb-data-explorer.png`
-
-> **Screenshot-Platzhalter 4:** automatisch provisionierte InfluxDB-Datenquelle in Grafana
-> Empfohlene Datei: `docs/images/grafana-datasource.png`
-
-> **Screenshot-Platzhalter 5:** vollständiges Oxocard-Dashboard mit fünf Stat-Panels, fünf Zeitreihen und Rohdatentabelle
-> Empfohlene Datei: `docs/images/grafana-dashboard.png`
-
-> **Screenshot-Platzhalter 6:** Detailansicht eines Time-Series-Panels mit Flux-Abfrage
-> Empfohlene Datei: `docs/images/grafana-flux-query.png`
-
-Jeder Screenshot sollte in der finalen Projektdokumentation eine Bildnummer, eine kurze Bildlegende und einen Verweis im Fliesstext erhalten.
+![grafana-dashboard](docs/images/grafana-dashboard.png)
+Grafana-Dashboard: Das Dashboard visualisiert die aktuellen Messwerte sowie die zeitlichen Verläufe von Temperatur, Luftfeuchtigkeit, Luftdruck, Helligkeit und Luftqualität.
 
 ## 17. Herausforderungen und Erkenntnisse
 
@@ -942,15 +938,15 @@ Die Messwerte sind für einen technischen Prototyp geeignet, sollten aber nicht 
 - [x] fünf Umgebungswerte einschliesslich IAQ in einem Datenpunkt übertragen
 - [x] periodischer Versand im Fünf-Sekunden-Intervall umgesetzt
 - [x] Speicherproblem durch wiederholt angehängte HTTP-Header erkannt und behoben
-- [ ] Retention-Dauer fachlich festlegen
-- [ ] Last-, Speicher- und Langzeitevaluation durchführen
+- [x] Retention-Dauer fachlich festlegen
+- [x] Last-, Speicher- und Langzeitevaluation durchführen
 
 ### Visualisierung
 
 - [x] InfluxDB als Grafana-Datenquelle verfügbar
 - [x] Panelkonzept und Flux-Abfragen dokumentiert
 - [x] Dashboard als JSON exportiert, versioniert und automatisch provisioniert
-- [ ] finale Screenshots in die Dokumentation einfügen
+- [x] finale Screenshots in die Dokumentation einfügen
 
 ## 19. Ausblick
 
