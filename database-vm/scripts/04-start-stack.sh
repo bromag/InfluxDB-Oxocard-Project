@@ -12,10 +12,9 @@ fi
 
 cd "${project_dir}"
 
-echo "==> Starting the honeypot stack..."
+echo "==> Starting the database stack..."
 docker compose up -d --build --remove-orphans
 docker compose ps
 
 echo "=========================================="
 echo "==> Grafana Credentials.."
-echo "Username: admin Password: admin12345"
